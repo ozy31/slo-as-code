@@ -48,6 +48,9 @@ func Compile(f *spec.File) RuleFile {
 	for _, s := range f.SLOs {
 		labels := sloLabels(f, s)
 		out.Groups = append(out.Groups, recordingGroup(f, s, labels))
+		if g, ok := alertingGroup(f, s, labels); ok {
+			out.Groups = append(out.Groups, g)
+		}
 	}
 	return out
 }
