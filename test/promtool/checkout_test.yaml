@@ -1,0 +1,119 @@
+# Behavioural tests for the generated checkout rules:
+#   go run ./cmd/slogen generate -o out/rules examples/*.yaml
+#   promtool test rules test/promtool/*.yaml
+#
+# Traffic is 1000 requests per minute. Error budget for 99.9% is 0.1%.
+rule_files:
+  - ../../out/rules/checkout.rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # 0.05% errors: half the budget rate. Nothing should fire.
+  - name: healthy traffic stays quiet
+    interval: 1m
+    input_series:
+      - series: 'http_requests_total{job="checkout", code="200"}'
+        values: '0+9995x240'
+      - series: 'http_requests_total{job="checkout", code="500"}'
+        values: '0+5x240'
+    alert_rule_test:
+      - eval_time: 4h
+        alertname: CheckoutAvailabilityBudgetBurnPage
+        exp_alerts: []
+      - eval_time: 4h
+        alertname: CheckoutAvailabilityBudgetBurnTicket
+        exp_alerts: []
+    promql_expr_test:
+      - expr: slo:burn_rate:1h{service="checkout", slo="availability"}
+        eval_time: 4h
+        exp_samples:
+          - labels: 'slo:burn_rate:1h{service="checkout", slo="availability", team="payments"}'
+            value: 0.5
+
+  # 2% errors: a 20x burn, enough to spend the monthly budget in 36 hours.
+  - name: fast burn pages within minutes
+    interval: 1m
+    input_series:
+      - series: 'http_requests_total{job="checkout", code="200"}'
+        values: '0+980x60'
+      - series: 'http_requests_total{job="checkout", code="500"}'
+        values: '0+20x60'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: CheckoutAvailabilityBudgetBurnPage
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: CheckoutAvailabilityBudgetBurnPage
+        exp_alerts:
+          - exp_labels:
+              service: checkout
+              slo: availability
+              team: payments
+              severity: critical
+              slo_alert: page
+            exp_annotations:
+              summary: checkout availability SLO is burning its error budget too fast
+              description: 'Objective 99.9% over 30d. Fires on burn rates of 14.4x over 1h/5m, 6x over 6h/30m, error ratio over the long window: 2%.'
+              runbook_url: https://github.com/ozy31/slo-as-code/blob/main/docs/runbooks/burn-rate.md
+
+  # 0.4% errors: a 4x burn. Too slow to wake anyone, fast enough for a ticket.
+  - name: slow burn opens a ticket but does not page
+    interval: 1m
+    input_series:
+      - series: 'http_requests_total{job="checkout", code="200"}'
+        values: '0+996x180'
+      - series: 'http_requests_total{job="checkout", code="500"}'
+        values: '0+4x180'
+    alert_rule_test:
+      - eval_time: 3h
+        alertname: CheckoutAvailabilityBudgetBurnPage
+        exp_alerts: []
+      - eval_time: 3h
+        alertname: CheckoutAvailabilityBudgetBurnTicket
+        exp_alerts:
+          - exp_labels:
+              service: checkout
+              slo: availability
+              team: payments
+              severity: warning
+              slo_alert: ticket
+            exp_annotations:
+              summary: checkout availability SLO is burning its error budget too fast
+              description: 'Objective 99.9% over 30d. Fires on burn rates of 3x over 1d/2h, 1x over 3d/6h, error ratio over the long window: 0.4%.'
+              runbook_url: https://github.com/ozy31/slo-as-code/blob/main/docs/runbooks/burn-rate.md
+
+  # 2% errors for 30 minutes, then fixed. Half an hour later the 6h window
+  # still shows a 1% error ratio, above the 0.6% threshold, but the paired
+  # 30m window is clean, so the page has already resolved instead of staying
+  # open for hours.
+  - name: page resolves soon after recovery
+    interval: 1m
+    input_series:
+      - series: 'http_requests_total{job="checkout", code="200"}'
+        values: '0+980x30 29400+1000x60'
+      - series: 'http_requests_total{job="checkout", code="500"}'
+        values: '0+20x30 600+0x60'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: CheckoutAvailabilityBudgetBurnPage
+        exp_alerts:
+          - exp_labels:
+              service: checkout
+              slo: availability
+              team: payments
+              severity: critical
+              slo_alert: page
+            exp_annotations:
+              summary: checkout availability SLO is burning its error budget too fast
+              description: 'Objective 99.9% over 30d. Fires on burn rates of 14.4x over 1h/5m, 6x over 6h/30m, error ratio over the long window: 2%.'
+              runbook_url: https://github.com/ozy31/slo-as-code/blob/main/docs/runbooks/burn-rate.md
+      - eval_time: 60m
+        alertname: CheckoutAvailabilityBudgetBurnPage
+        exp_alerts: []
+    promql_expr_test:
+      - expr: slo:sli_error:ratio_rate6h{service="checkout", slo="availability"} > bool 0.006
+        eval_time: 60m
+        exp_samples:
+          - labels: '{service="checkout", slo="availability", team="payments"}'
+            value: 1
