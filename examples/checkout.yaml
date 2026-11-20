@@ -1,0 +1,39 @@
+# Checkout API: request availability and latency.
+service: checkout
+labels:
+  team: payments
+slos:
+  - name: availability
+    description: Requests that do not fail with a 5xx.
+    objective: 99.9
+    window: 30d
+    sli:
+      errors: sum(rate(http_requests_total{job="checkout", code=~"5.."}[$window]))
+      total: sum(rate(http_requests_total{job="checkout"}[$window]))
+    alerting:
+      runbook: https://github.com/ozy31/slo-as-code/blob/main/docs/runbooks/burn-rate.md
+      page:
+        labels:
+          severity: critical
+      ticket:
+        labels:
+          severity: warning
+
+  - name: latency
+    description: Requests served in under 300 ms.
+    objective: 99
+    window: 30d
+    sli:
+      # Slow = all requests minus those in the <= 300 ms bucket.
+      errors: >-
+        sum(rate(http_request_duration_seconds_count{job="checkout"}[$window]))
+        - sum(rate(http_request_duration_seconds_bucket{job="checkout", le="0.3"}[$window]))
+      total: sum(rate(http_request_duration_seconds_count{job="checkout"}[$window]))
+    alerting:
+      runbook: https://github.com/ozy31/slo-as-code/blob/main/docs/runbooks/burn-rate.md
+      page:
+        labels:
+          severity: critical
+      ticket:
+        labels:
+          severity: warning

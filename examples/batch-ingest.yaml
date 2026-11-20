@@ -1,0 +1,16 @@
+# Batch ingestion: an event-based SLO over a 28-day window, ticket only.
+service: batch-ingest
+labels:
+  team: data
+slos:
+  - name: freshness
+    description: Ingestion runs that finish without error.
+    objective: 99.5
+    window: 28d
+    sli:
+      errors: sum(increase(ingest_runs_total{result="failed"}[$window]))
+      total: sum(increase(ingest_runs_total[$window]))
+    alerting:
+      ticket:
+        labels:
+          severity: warning
