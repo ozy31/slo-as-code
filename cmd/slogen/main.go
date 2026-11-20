@@ -2,6 +2,7 @@
 //
 //	slogen generate -o out/rules examples/*.yaml   one rule file per spec
 //	slogen validate examples/*.yaml                 check specs only
+//	slogen dashboard -o out/dashboards examples/*.yaml   Grafana JSON per spec
 package main
 
 import (
@@ -14,6 +15,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/ozy31/slo-as-code/internal/dashboard"
 	"github.com/ozy31/slo-as-code/internal/rules"
 	"github.com/ozy31/slo-as-code/internal/spec"
 )
@@ -21,6 +23,7 @@ import (
 const usage = `usage:
   slogen validate <spec.yaml>...
   slogen generate [-o dir] <spec.yaml>...
+  slogen dashboard [-o dir] <spec.yaml>...
 `
 
 func main() {
@@ -44,9 +47,41 @@ func run(args []string) error {
 			return err
 		}
 		return generate(*outDir, fs.Args())
+	case "dashboard":
+		fs := flag.NewFlagSet("dashboard", flag.ContinueOnError)
+		outDir := fs.String("o", "out/dashboards", "output directory")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		return dashboards(*outDir, fs.Args())
 	default:
 		return errors.New(usage)
 	}
+}
+
+func dashboards(outDir string, paths []string) error {
+	if len(paths) == 0 {
+		return errors.New(usage)
+	}
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		return err
+	}
+	for _, p := range paths {
+		f, err := spec.Load(p)
+		if err != nil {
+			return err
+		}
+		out, err := dashboard.Render(f)
+		if err != nil {
+			return err
+		}
+		dst := filepath.Join(outDir, f.Service+".json")
+		if err := os.WriteFile(dst, append(out, '\n'), 0o644); err != nil {
+			return err
+		}
+		fmt.Printf("%s -> %s\n", p, dst)
+	}
+	return nil
 }
 
 func validate(paths []string) error {
