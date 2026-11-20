@@ -65,10 +65,26 @@ func recordingGroup(f *spec.File, s spec.SLO, labels map[string]string) Group {
 			Labels: labels,
 		})
 	}
+	budget := formatFloat(s.ErrorBudget())
 	g.Rules = append(g.Rules,
 		Rule{Record: "slo:objective:ratio", Expr: formatFloat(s.Objective / 100), Labels: labels},
-		Rule{Record: "slo:error_budget:ratio", Expr: formatFloat(s.ErrorBudget()), Labels: labels},
+		Rule{Record: "slo:error_budget:ratio", Expr: budget, Labels: labels},
 	)
+	// Rules in a group run in order, so these can read the ratios above.
+	// Burn rate 1 spends exactly the whole budget over the window.
+	for _, w := range windows {
+		g.Rules = append(g.Rules, Rule{
+			Record: "slo:burn_rate:" + FormatDuration(w),
+			Expr:   fmt.Sprintf("%s%s / %s", ratioMetric(w), selector(labels), budget),
+			Labels: labels,
+		})
+	}
+	// 1 = untouched, 0 = spent, negative = SLO already missed this window.
+	g.Rules = append(g.Rules, Rule{
+		Record: "slo:error_budget_remaining:ratio",
+		Expr:   fmt.Sprintf("1 - (%s%s / %s)", ratioMetric(s.Window.Duration), selector(labels), budget),
+		Labels: labels,
+	})
 	return g
 }
 
