@@ -1,0 +1,13 @@
+service: Bad_Name
+slos:
+  - name: availability
+    objective: 100
+    window: 12h
+    sli:
+      errors: sum(rate(errors_total[5m]))
+      total: ""
+  - name: availability
+    objective: 99
+    sli:
+      errors: sum(rate(errors_total[$window]))
+      total: sum(rate(requests_total[$window]))

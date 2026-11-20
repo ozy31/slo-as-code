@@ -1,0 +1,8 @@
+service: checkout
+slos:
+  - name: availability
+    objective: 99.9
+    windw: 30d
+    sli:
+      errors: sum(rate(errors_total[$window]))
+      total: sum(rate(requests_total[$window]))
