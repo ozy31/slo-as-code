@@ -24,11 +24,11 @@ slos:
     objective: 99
     window: 30d
     sli:
-      # Slow = all requests minus those in the <= 300 ms bucket.
-      errors: >-
-        sum(rate(http_request_duration_seconds_count{job="checkout"}[$window]))
-        - sum(rate(http_request_duration_seconds_bucket{job="checkout", le="0.3"}[$window]))
-      total: sum(rate(http_request_duration_seconds_count{job="checkout"}[$window]))
+      # Shorthand: slow = all requests minus those in the le="0.3" bucket.
+      latency:
+        metric: http_request_duration_seconds
+        threshold: "0.3"
+        selector: job="checkout"
     alerting:
       runbook: https://github.com/ozy31/slo-as-code/blob/main/docs/runbooks/burn-rate.md
       page:

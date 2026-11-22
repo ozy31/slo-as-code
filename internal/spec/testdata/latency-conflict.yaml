@@ -1,0 +1,10 @@
+service: checkout
+slos:
+  - name: latency
+    objective: 99
+    sli:
+      errors: sum(rate(slow_total[$window]))
+      total: sum(rate(requests_total[$window]))
+      latency:
+        metric: http_request_duration_seconds_bucket
+        threshold: fast

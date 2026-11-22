@@ -64,3 +64,43 @@ func TestParseDuration(t *testing.T) {
 		}
 	}
 }
+
+func TestLatencyShorthandExpands(t *testing.T) {
+	f, err := Load("../../examples/checkout.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lat SLO
+	for _, s := range f.SLOs {
+		if s.Name == "latency" {
+			lat = s
+		}
+	}
+	wantErrors := `sum(rate(http_request_duration_seconds_count{job="checkout"}[$window])) - ` +
+		`sum(rate(http_request_duration_seconds_bucket{job="checkout", le="0.3"}[$window]))`
+	if lat.SLI.Errors != wantErrors {
+		t.Errorf("errors =\n%s\nwant\n%s", lat.SLI.Errors, wantErrors)
+	}
+	if lat.SLI.Total != `sum(rate(http_request_duration_seconds_count{job="checkout"}[$window]))` {
+		t.Errorf("total = %s", lat.SLI.Total)
+	}
+}
+
+func TestLatencyWithoutSelector(t *testing.T) {
+	errs, total := Latency{Metric: "rpc_seconds", Threshold: "1"}.queries()
+	if !strings.Contains(errs, `rpc_seconds_bucket{le="1"}`) || total != "sum(rate(rpc_seconds_count{}[$window]))" {
+		t.Errorf("unexpected queries: %s | %s", errs, total)
+	}
+}
+
+func TestLatencyConflictsAndBadValues(t *testing.T) {
+	_, err := Load("testdata/latency-conflict.yaml")
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	for _, want := range []string{"not both", "without _bucket or _count", `threshold "fast"`} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error does not mention %q:\n%v", want, err)
+		}
+	}
+}

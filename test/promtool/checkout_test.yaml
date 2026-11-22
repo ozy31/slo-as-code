@@ -117,3 +117,30 @@ tests:
         exp_samples:
           - labels: '{service="checkout", slo="availability", team="payments"}'
             value: 1
+
+  # Latency SLO (99% under 300 ms, from the histogram shorthand): 5% slow
+  # requests is a 5x burn. Ticket, no page.
+  - name: slow responses open a latency ticket
+    interval: 1m
+    input_series:
+      - series: 'http_request_duration_seconds_count{job="checkout"}'
+        values: '0+1000x180'
+      - series: 'http_request_duration_seconds_bucket{job="checkout", le="0.3"}'
+        values: '0+950x180'
+    alert_rule_test:
+      - eval_time: 3h
+        alertname: CheckoutLatencyBudgetBurnPage
+        exp_alerts: []
+      - eval_time: 3h
+        alertname: CheckoutLatencyBudgetBurnTicket
+        exp_alerts:
+          - exp_labels:
+              service: checkout
+              slo: latency
+              team: payments
+              severity: warning
+              slo_alert: ticket
+            exp_annotations:
+              summary: checkout latency SLO is burning its error budget too fast
+              description: 'Objective 99% over 30d. Fires on burn rates of 3x over 1d/2h, 1x over 3d/6h, error ratio over the long window: 5%.'
+              runbook_url: https://github.com/ozy31/slo-as-code/blob/main/docs/runbooks/burn-rate.md
