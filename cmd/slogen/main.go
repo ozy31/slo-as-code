@@ -4,6 +4,7 @@
 //	slogen generate -format prometheusrule ...     PrometheusRule CRs instead
 //	slogen validate examples/*.yaml                 check specs only
 //	slogen dashboard -o out/dashboards examples/*.yaml   Grafana JSON per spec
+//	slogen explain examples/checkout.yaml           budgets and alert thresholds
 package main
 
 import (
@@ -25,6 +26,7 @@ const usage = `usage:
   slogen validate <spec.yaml>...
   slogen generate [-o dir] [-format rules|prometheusrule] <spec.yaml>...
   slogen dashboard [-o dir] <spec.yaml>...
+  slogen explain <spec.yaml>...
 `
 
 func main() {
@@ -52,6 +54,20 @@ func run(args []string) error {
 			return fmt.Errorf("unknown format %q", *format)
 		}
 		return generate(*outDir, *format, fs.Args())
+	case "explain":
+		if len(args) < 2 {
+			return errors.New(usage)
+		}
+		for _, p := range args[1:] {
+			f, err := spec.Load(p)
+			if err != nil {
+				return err
+			}
+			if err := rules.Explain(os.Stdout, f); err != nil {
+				return err
+			}
+		}
+		return nil
 	case "dashboard":
 		fs := flag.NewFlagSet("dashboard", flag.ContinueOnError)
 		outDir := fs.String("o", "out/dashboards", "output directory")
