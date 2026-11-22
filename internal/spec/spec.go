@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,9 +36,42 @@ type SLO struct {
 }
 
 // SLI holds PromQL for bad and total events. Both must contain $window.
+// Instead of writing them by hand, a latency SLI can be declared with
+// Latency and the queries are derived from the histogram.
 type SLI struct {
-	Errors string `yaml:"errors"`
-	Total  string `yaml:"total"`
+	Errors  string   `yaml:"errors,omitempty"`
+	Total   string   `yaml:"total,omitempty"`
+	Latency *Latency `yaml:"latency,omitempty"`
+}
+
+// Latency describes "requests faster than Threshold are good" on a
+// Prometheus histogram. Threshold must be one of the histogram's bucket
+// boundaries, written exactly as the le label (e.g. "0.3").
+type Latency struct {
+	Metric    string `yaml:"metric"`    // histogram name without _bucket/_count
+	Threshold string `yaml:"threshold"` // le value
+	Selector  string `yaml:"selector,omitempty"`
+
+	expanded bool
+}
+
+// queries expands a latency SLI into errors/total PromQL: slow requests are
+// all requests minus those in the threshold bucket.
+func (l Latency) queries() (errs, total string) {
+	sel := strings.TrimSpace(l.Selector)
+	join := func(extra string) string {
+		switch {
+		case sel == "":
+			return "{" + extra + "}"
+		case extra == "":
+			return "{" + sel + "}"
+		default:
+			return "{" + sel + ", " + extra + "}"
+		}
+	}
+	count := fmt.Sprintf("sum(rate(%s_count%s[%s]))", l.Metric, join(""), WindowPlaceholder)
+	bucket := fmt.Sprintf(`sum(rate(%s_bucket%s[%s]))`, l.Metric, join(fmt.Sprintf(`le="%s"`, l.Threshold)), WindowPlaceholder)
+	return count + " - " + bucket, count
 }
 
 // Alerting configures the generated burn-rate alerts.
@@ -103,13 +137,23 @@ func Load(path string) (*File, error) {
 
 func (f *File) applyDefaults() {
 	for i := range f.SLOs {
-		if f.SLOs[i].Window.Duration == 0 {
-			f.SLOs[i].Window.Duration = 30 * 24 * time.Hour
+		s := &f.SLOs[i]
+		if s.Window.Duration == 0 {
+			s.Window.Duration = 30 * 24 * time.Hour
+		}
+		// Expand only when the hand-written queries are absent; Validate
+		// reports the conflict if both were given.
+		if s.SLI.Latency != nil && s.SLI.Errors == "" && s.SLI.Total == "" {
+			s.SLI.Errors, s.SLI.Total = s.SLI.Latency.queries()
+			s.SLI.Latency.expanded = true
 		}
 	}
 }
 
-var nameRe = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+var (
+	nameRe   = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+	metricRe = regexp.MustCompile(`^[a-zA-Z_:][a-zA-Z0-9_:]*$`)
+)
 
 // Validate reports every problem in the file, not just the first.
 func (f *File) Validate() error {
@@ -135,6 +179,17 @@ func (f *File) Validate() error {
 		}
 		if s.Window.Duration < 24*time.Hour {
 			errs = append(errs, fmt.Errorf("%s: window must be at least 1d", at))
+		}
+		if l := s.SLI.Latency; l != nil {
+			if !l.expanded {
+				errs = append(errs, fmt.Errorf("%s: use either sli.latency or sli.errors/sli.total, not both", at))
+			}
+			if !metricRe.MatchString(l.Metric) || strings.HasSuffix(l.Metric, "_bucket") || strings.HasSuffix(l.Metric, "_count") {
+				errs = append(errs, fmt.Errorf("%s: sli.latency.metric %q must be a histogram name without _bucket or _count", at, l.Metric))
+			}
+			if _, err := strconv.ParseFloat(l.Threshold, 64); err != nil {
+				errs = append(errs, fmt.Errorf("%s: sli.latency.threshold %q must be a bucket boundary such as \"0.3\"", at, l.Threshold))
+			}
 		}
 		for field, q := range map[string]string{"sli.errors": s.SLI.Errors, "sli.total": s.SLI.Total} {
 			if strings.TrimSpace(q) == "" {
