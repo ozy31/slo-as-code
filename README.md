@@ -36,6 +36,32 @@ go run ./cmd/slogen validate examples/*.yaml
 go run ./cmd/slogen generate -o out/rules examples/*.yaml
 go run ./cmd/slogen generate -o out/k8s -format prometheusrule examples/*.yaml
 go run ./cmd/slogen dashboard -o out/dashboards examples/*.yaml
+go run ./cmd/slogen explain examples/checkout.yaml
+```
+
+Latency SLOs on a Prometheus histogram do not need hand-written queries:
+
+```yaml
+  - name: latency
+    objective: 99
+    sli:
+      latency:
+        metric: http_request_duration_seconds   # without _bucket / _count
+        threshold: "0.3"                         # an existing le bucket
+        selector: job="checkout"
+```
+
+`slogen explain` shows what the numbers mean before anything ships:
+
+```
+checkout / availability: 99.9% over 30d
+  error budget: 0.1% of events, or 43m12s of full downtime per window
+
+  class   windows  burn rate  error ratio >  budget gone in
+  page    1h/5m    14.4x      1.44%          2.1d
+  page    6h/30m   6x         0.6%           5.0d
+  ticket  1d/2h    3x         0.3%           10.0d
+  ticket  3d/6h    1x         0.1%           30.0d
 ```
 
 `$window` is replaced with each evaluation window. The generated page alert
@@ -91,9 +117,14 @@ synthetic traffic of 1000 requests per minute:
 | Fast burn | 2% (20x) | quiet at 1 min, page by 10 min |
 | Slow burn | 0.4% (4x) | ticket, no page |
 | Recovery | 2% for 30 min, then 0 | page while failing; resolved 30 min later although the 6h ratio is still above its threshold |
+| Slow responses | 5% over 300 ms (5x on the 99% latency SLO) | latency ticket, no page |
 
 Go unit tests cover spec validation (every error is reported, unknown keys
-are rejected), the burn-rate table, window substitution and the dashboard.
+are rejected), the latency shorthand, the burn-rate table, window
+substitution and the dashboard. Golden files in `cmd/slogen/testdata` pin
+the exact generated output, so any change to an expression or threshold
+shows up as a diff in review (`go test ./cmd/slogen -update` after an
+intended change).
 
 ## Validation
 
@@ -123,7 +154,8 @@ make test        # go vet, go test, promtool check, promtool test
 make dashboards  # out/dashboards/*.json
 ```
 
-Requirements: Go and promtool (from the Prometheus release).
+Requirements: Go and promtool (from the Prometheus release). Tagged
+versions publish `slogen` binaries for Linux and macOS with checksums.
 
 ## License
 
