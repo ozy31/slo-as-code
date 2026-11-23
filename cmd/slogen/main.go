@@ -84,14 +84,15 @@ func dashboards(outDir string, paths []string) error {
 	if len(paths) == 0 {
 		return errors.New(usage)
 	}
+	files, err := loadAll(paths)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return err
 	}
-	for _, p := range paths {
-		f, err := spec.Load(p)
-		if err != nil {
-			return err
-		}
+	for i, f := range files {
+		p := paths[i]
 		out, err := dashboard.Render(f)
 		if err != nil {
 			return err
@@ -110,28 +111,60 @@ func validate(paths []string) error {
 		return errors.New(usage)
 	}
 	var errs []error
+	seen := map[string]string{}
 	for _, p := range paths {
-		if _, err := spec.Load(p); err != nil {
+		f, err := spec.Load(p)
+		if err != nil {
 			errs = append(errs, err)
 			continue
 		}
+		if prev, dup := seen[f.Service]; dup {
+			errs = append(errs, duplicateService(f.Service, prev, p))
+			continue
+		}
+		seen[f.Service] = p
 		fmt.Printf("ok  %s\n", p)
 	}
 	return errors.Join(errs...)
+}
+
+// loadAll loads every spec and refuses two specs for the same service:
+// output files are named after the service, so the second would silently
+// overwrite the first.
+func loadAll(paths []string) ([]*spec.File, error) {
+	files := make([]*spec.File, 0, len(paths))
+	seen := map[string]string{}
+	for _, p := range paths {
+		f, err := spec.Load(p)
+		if err != nil {
+			return nil, err
+		}
+		if prev, dup := seen[f.Service]; dup {
+			return nil, duplicateService(f.Service, prev, p)
+		}
+		seen[f.Service] = p
+		files = append(files, f)
+	}
+	return files, nil
+}
+
+func duplicateService(service, first, second string) error {
+	return fmt.Errorf("%s: service %q is already defined in %s; put all of its SLOs in one file", second, service, first)
 }
 
 func generate(outDir, format string, paths []string) error {
 	if len(paths) == 0 {
 		return errors.New(usage)
 	}
+	files, err := loadAll(paths)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return err
 	}
-	for _, p := range paths {
-		f, err := spec.Load(p)
-		if err != nil {
-			return err
-		}
+	for i, f := range files {
+		p := paths[i]
 		var doc any = rules.Compile(f)
 		dst := filepath.Join(outDir, f.Service+".rules.yaml")
 		if format == "prometheusrule" {
