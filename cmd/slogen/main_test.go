@@ -62,3 +62,17 @@ func TestCheckDetectsStaleAndMissingOutput(t *testing.T) {
 		t.Fatalf("hand-edited file: want only %s reported, got %v", target, err)
 	}
 }
+
+func TestVersionPrefersLinkerValue(t *testing.T) {
+	old := version
+	t.Cleanup(func() { version = old })
+
+	version = "v1.2.3"
+	if got := buildVersion(); got != "v1.2.3" {
+		t.Errorf("got %q", got)
+	}
+	version = ""
+	if got := buildVersion(); got == "" {
+		t.Error("empty version without ldflags")
+	}
+}

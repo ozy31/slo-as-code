@@ -6,6 +6,7 @@
 //	slogen validate examples/*.yaml                 check specs only
 //	slogen dashboard -o out/dashboards examples/*.yaml   Grafana JSON per spec
 //	slogen explain examples/checkout.yaml           budgets and alert thresholds
+//	slogen version                                  build version
 package main
 
 import (
@@ -15,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -29,7 +31,23 @@ const usage = `usage:
   slogen generate [-o dir] [-format rules|prometheusrule] [-check] <spec.yaml>...
   slogen dashboard [-o dir] <spec.yaml>...
   slogen explain <spec.yaml>...
+  slogen version
 `
+
+// version is set by the release build (-ldflags "-X main.version=v1.2.3").
+var version = ""
+
+// buildVersion falls back to the module version for `go install ...@v1.2.3`
+// and to "dev" for local builds.
+func buildVersion() string {
+	if version != "" {
+		return version
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	return "dev"
+}
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -45,6 +63,9 @@ func run(args []string) error {
 	switch args[0] {
 	case "validate":
 		return validate(args[1:])
+	case "version", "-version", "--version":
+		fmt.Println("slogen", buildVersion())
+		return nil
 	case "generate":
 		fs := flag.NewFlagSet("generate", flag.ContinueOnError)
 		outDir := fs.String("o", "out/rules", "output directory")
