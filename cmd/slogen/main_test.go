@@ -33,3 +33,32 @@ func TestDuplicateServiceIsRejected(t *testing.T) {
 		t.Error("generate wrote output before rejecting the duplicate")
 	}
 }
+
+func TestCheckDetectsStaleAndMissingOutput(t *testing.T) {
+	dir := t.TempDir()
+	paths := []string{"../../examples/checkout.yaml", "../../examples/batch-ingest.yaml"}
+
+	if err := checkGenerated(dir, "rules", paths); err == nil || !strings.Contains(err.Error(), "(missing)") {
+		t.Fatalf("empty dir: want missing files, got %v", err)
+	}
+	if err := generate(dir, "rules", paths); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkGenerated(dir, "rules", paths); err != nil {
+		t.Fatalf("freshly generated: %v", err)
+	}
+
+	target := filepath.Join(dir, "checkout.rules.yaml")
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited := strings.Replace(string(data), "0.0144", "0.02", 1)
+	if err := os.WriteFile(target, []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err = checkGenerated(dir, "rules", paths)
+	if err == nil || !strings.Contains(err.Error(), target) || strings.Contains(err.Error(), "batch-ingest") {
+		t.Fatalf("hand-edited file: want only %s reported, got %v", target, err)
+	}
+}
