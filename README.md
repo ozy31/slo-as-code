@@ -37,6 +37,7 @@ go run ./cmd/slogen generate -o out/rules examples/*.yaml
 go run ./cmd/slogen generate -o out/k8s -format prometheusrule examples/*.yaml
 go run ./cmd/slogen dashboard -o out/dashboards examples/*.yaml
 go run ./cmd/slogen explain examples/checkout.yaml
+go run ./cmd/slogen version
 ```
 
 Latency SLOs on a Prometheus histogram do not need hand-written queries:
@@ -134,6 +135,21 @@ intended change).
 - SLI queries that do not use `$window`
 - duplicate SLO names, and service or SLO names that are not valid labels
 - unknown keys, so `windw: 30d` fails instead of silently using the default
+- two files for the same service, because output files are named after the
+  service and the second would silently overwrite the first
+
+## Committing generated rules
+
+If the rule files are committed next to the specs (for GitOps, or so a
+reviewer sees the PromQL), add this to CI:
+
+```bash
+slogen generate -check -o deploy/rules specs/*.yaml
+```
+
+It writes nothing and fails with the list of files that are missing or no
+longer match their spec, so a spec change cannot be merged without the
+regenerated rules, and a hand edit to a generated file is caught.
 
 ## Generated series
 
