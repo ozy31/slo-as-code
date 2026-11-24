@@ -77,11 +77,13 @@ func (l Latency) queries() (errs, total string) {
 
 // Alerting configures the generated burn-rate alerts.
 type Alerting struct {
-	Disabled bool              `yaml:"disabled,omitempty"`
-	Runbook  string            `yaml:"runbook,omitempty"`
-	Labels   map[string]string `yaml:"labels,omitempty"`
-	Page     Severity          `yaml:"page,omitempty"`
-	Ticket   Severity          `yaml:"ticket,omitempty"`
+	Disabled bool   `yaml:"disabled,omitempty"`
+	Runbook  string `yaml:"runbook,omitempty"`
+	// Annotations are added to every alert of this SLO, e.g. dashboard_url.
+	Annotations map[string]string `yaml:"annotations,omitempty"`
+	Labels      map[string]string `yaml:"labels,omitempty"`
+	Page        Severity          `yaml:"page,omitempty"`
+	Ticket      Severity          `yaml:"ticket,omitempty"`
 	// Exhausted fires once the whole budget for the window is spent, i.e.
 	// the SLO is already missed. Burn-rate alerts say it is about to happen.
 	Exhausted Severity `yaml:"exhausted,omitempty"`
@@ -216,6 +218,12 @@ func (f *File) Validate() error {
 		errs = append(errs, checkLabels(at+" alerting.page.labels", s.Alerting.Page.Labels)...)
 		errs = append(errs, checkLabels(at+" alerting.ticket.labels", s.Alerting.Ticket.Labels)...)
 		errs = append(errs, checkLabels(at+" alerting.exhausted.labels", s.Alerting.Exhausted.Labels)...)
+		for _, k := range sortedKeys(s.Alerting.Annotations) {
+			switch k {
+			case "summary", "description", "runbook_url":
+				errs = append(errs, fmt.Errorf("%s: alerting.annotations.%s is generated; use alerting.runbook for the runbook", at, k))
+			}
+		}
 		if l := s.SLI.Latency; l != nil {
 			if !l.expanded {
 				errs = append(errs, fmt.Errorf("%s: use either sli.latency or sli.errors/sli.total, not both", at))

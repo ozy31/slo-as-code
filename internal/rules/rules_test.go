@@ -111,3 +111,32 @@ func TestFormatDuration(t *testing.T) {
 		}
 	}
 }
+
+func TestAlertAnnotationsFromSpec(t *testing.T) {
+	f := &spec.File{
+		Service: "search",
+		SLOs: []spec.SLO{{
+			Name:      "availability",
+			Objective: 99.5,
+			Window:    spec.Duration{Duration: 28 * 24 * time.Hour},
+			SLI:       spec.SLI{Errors: "e[$window]", Total: "t[$window]"},
+			Alerting: spec.Alerting{
+				Annotations: map[string]string{"dashboard_url": "https://grafana.example/d/slo-search"},
+				Page:        spec.Severity{Labels: map[string]string{"severity": "critical"}},
+				Exhausted:   spec.Severity{Labels: map[string]string{"severity": "warning"}},
+			},
+		}},
+	}
+	alerts := Compile(f).Groups[1].Rules
+	if len(alerts) != 2 {
+		t.Fatalf("want page and exhausted alerts, got %d", len(alerts))
+	}
+	for _, a := range alerts {
+		if a.Annotations["dashboard_url"] != "https://grafana.example/d/slo-search" || a.Annotations["summary"] == "" {
+			t.Errorf("%s annotations: %v", a.Alert, a.Annotations)
+		}
+		if _, ok := a.Annotations["runbook_url"]; ok {
+			t.Errorf("%s: runbook_url without a runbook", a.Alert)
+		}
+	}
+}

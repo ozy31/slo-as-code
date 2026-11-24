@@ -77,9 +77,7 @@ func alertingGroup(f *spec.File, s spec.SLO, labels map[string]string) (Group, b
 					"error ratio over the long window: {{ $value | humanizePercentage }}.",
 				s.Objective, FormatDuration(s.Window.Duration), desc),
 		}
-		if s.Alerting.Runbook != "" {
-			ann["runbook_url"] = s.Alerting.Runbook
-		}
+		addAnnotations(ann, s.Alerting)
 		g.Rules = append(g.Rules, Rule{
 			Alert:       alertName(f.Service, s.Name, class),
 			Expr:        joinOr(conds),
@@ -100,9 +98,7 @@ func alertingGroup(f *spec.File, s spec.SLO, labels map[string]string) (Group, b
 					"Prioritise reliability work over new releases until it recovers.",
 				s.Objective, FormatDuration(s.Window.Duration)),
 		}
-		if s.Alerting.Runbook != "" {
-			ann["runbook_url"] = s.Alerting.Runbook
-		}
+		addAnnotations(ann, s.Alerting)
 		g.Rules = append(g.Rules, Rule{
 			Alert: camel(f.Service) + camel(s.Name) + "ErrorBudgetExhausted",
 			Expr:  fmt.Sprintf("slo:error_budget_remaining:ratio%s < 0", selector(labels)),
@@ -113,6 +109,15 @@ func alertingGroup(f *spec.File, s spec.SLO, labels map[string]string) (Group, b
 		})
 	}
 	return g, len(g.Rules) > 0
+}
+
+// addAnnotations adds the runbook and the spec's own annotations. Validation
+// keeps them from replacing the generated summary and description.
+func addAnnotations(ann map[string]string, a spec.Alerting) {
+	maps.Copy(ann, a.Annotations)
+	if a.Runbook != "" {
+		ann["runbook_url"] = a.Runbook
+	}
 }
 
 func shortestFor(class string) time.Duration {

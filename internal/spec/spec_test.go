@@ -116,9 +116,17 @@ func TestReservedAndInvalidLabels(t *testing.T) {
 		`alerting.labels: label "slo" is set by slogen`,
 		`alerting.page.labels: label "slo_alert" is set by slogen`,
 		`alerting.ticket.labels: "__meta" is not a valid Prometheus label name`,
+		`alerting.annotations.summary is generated`,
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error does not mention %q:\n%v", want, err)
 		}
+	}
+}
+
+func TestCustomAnnotationIsAccepted(t *testing.T) {
+	_, err := Load("testdata/labels.yaml")
+	if err != nil && strings.Contains(err.Error(), "dashboard_url") {
+		t.Errorf("dashboard_url should be allowed: %v", err)
 	}
 }

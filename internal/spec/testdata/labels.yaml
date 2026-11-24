@@ -9,6 +9,9 @@ slos:
       errors: sum(rate(errors_total[$window]))
       total: sum(rate(requests_total[$window]))
     alerting:
+      annotations:
+        summary: overridden
+        dashboard_url: https://grafana.example/d/x
       labels:
         slo: renamed
       page:
