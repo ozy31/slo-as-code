@@ -82,6 +82,9 @@ type Alerting struct {
 	Labels   map[string]string `yaml:"labels,omitempty"`
 	Page     Severity          `yaml:"page,omitempty"`
 	Ticket   Severity          `yaml:"ticket,omitempty"`
+	// Exhausted fires once the whole budget for the window is spent, i.e.
+	// the SLO is already missed. Burn-rate alerts say it is about to happen.
+	Exhausted Severity `yaml:"exhausted,omitempty"`
 }
 
 // Severity is the label set attached to one class of alert.
@@ -212,6 +215,7 @@ func (f *File) Validate() error {
 		errs = append(errs, checkLabels(at+" alerting.labels", s.Alerting.Labels)...)
 		errs = append(errs, checkLabels(at+" alerting.page.labels", s.Alerting.Page.Labels)...)
 		errs = append(errs, checkLabels(at+" alerting.ticket.labels", s.Alerting.Ticket.Labels)...)
+		errs = append(errs, checkLabels(at+" alerting.exhausted.labels", s.Alerting.Exhausted.Labels)...)
 		if l := s.SLI.Latency; l != nil {
 			if !l.expanded {
 				errs = append(errs, fmt.Errorf("%s: use either sli.latency or sli.errors/sli.total, not both", at))

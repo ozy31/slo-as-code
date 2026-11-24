@@ -191,6 +191,19 @@ groups:
           description: 'Objective 99.9% over 30d. Fires on burn rates of 3x over 1d/2h, 1x over 3d/6h, error ratio over the long window: {{ $value | humanizePercentage }}.'
           runbook_url: https://github.com/ozy31/slo-as-code/blob/main/docs/runbooks/burn-rate.md
           summary: checkout availability SLO is burning its error budget too fast
+      - alert: CheckoutAvailabilityErrorBudgetExhausted
+        expr: slo:error_budget_remaining:ratio{service="checkout", slo="availability"} < 0
+        for: 15m
+        labels:
+          service: checkout
+          severity: warning
+          slo: availability
+          slo_alert: exhausted
+          team: payments
+        annotations:
+          description: 'Objective 99.9% over 30d is missed: {{ $value | humanizePercentage }} of the budget remains. Prioritise reliability work over new releases until it recovers.'
+          runbook_url: https://github.com/ozy31/slo-as-code/blob/main/docs/runbooks/burn-rate.md
+          summary: checkout availability SLO has spent its whole error budget
   - name: slo:checkout:latency:recording
     interval: 30s
     rules:

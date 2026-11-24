@@ -18,6 +18,9 @@ slos:
       ticket:
         labels:
           severity: warning
+      exhausted:
+        labels:
+          severity: warning
 
   - name: latency
     description: Requests served in under 300 ms.

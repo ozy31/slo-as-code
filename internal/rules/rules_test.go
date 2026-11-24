@@ -65,8 +65,16 @@ func TestCompileCheckout(t *testing.T) {
 	}
 
 	alerts := rf.Groups[1].Rules
-	if len(alerts) != 2 || alerts[0].Alert != "CheckoutAvailabilityBudgetBurnPage" || alerts[1].Alert != "CheckoutAvailabilityBudgetBurnTicket" {
-		t.Fatalf("unexpected alerts: %+v", alerts)
+	var names []string
+	for _, a := range alerts {
+		names = append(names, a.Alert)
+	}
+	if strings.Join(names, ",") != "CheckoutAvailabilityBudgetBurnPage,CheckoutAvailabilityBudgetBurnTicket,CheckoutAvailabilityErrorBudgetExhausted" {
+		t.Fatalf("unexpected alerts: %v", names)
+	}
+	exhausted := alerts[2]
+	if exhausted.Expr != `slo:error_budget_remaining:ratio{service="checkout", slo="availability"} < 0` || exhausted.Labels["slo_alert"] != "exhausted" {
+		t.Errorf("exhausted alert: %+v", exhausted)
 	}
 	page := alerts[0]
 	for _, want := range []string{"ratio_rate1h", "ratio_rate5m", "> 0.0144", "ratio_rate6h", "ratio_rate30m", "> 0.006"} {

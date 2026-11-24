@@ -24,6 +24,9 @@ tests:
       - eval_time: 4h
         alertname: CheckoutAvailabilityBudgetBurnTicket
         exp_alerts: []
+      - eval_time: 4h
+        alertname: CheckoutAvailabilityErrorBudgetExhausted
+        exp_alerts: []
     promql_expr_test:
       - expr: slo:burn_rate:1h{service="checkout", slo="availability"}
         eval_time: 4h
@@ -55,6 +58,33 @@ tests:
             exp_annotations:
               summary: checkout availability SLO is burning its error budget too fast
               description: 'Objective 99.9% over 30d. Fires on burn rates of 14.4x over 1h/5m, 6x over 6h/30m, error ratio over the long window: 2%.'
+              runbook_url: https://github.com/ozy31/slo-as-code/blob/main/docs/runbooks/burn-rate.md
+
+  # The same 2% for an hour is 20x the budget across all the data there is,
+  # so the 30d budget is gone: the SLO is missed, not just at risk.
+  - name: exhausted budget alerts after its hold time
+    interval: 1m
+    input_series:
+      - series: 'http_requests_total{job="checkout", code="200"}'
+        values: '0+980x60'
+      - series: 'http_requests_total{job="checkout", code="500"}'
+        values: '0+20x60'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: CheckoutAvailabilityErrorBudgetExhausted
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: CheckoutAvailabilityErrorBudgetExhausted
+        exp_alerts:
+          - exp_labels:
+              service: checkout
+              slo: availability
+              team: payments
+              severity: warning
+              slo_alert: exhausted
+            exp_annotations:
+              summary: checkout availability SLO has spent its whole error budget
+              description: 'Objective 99.9% over 30d is missed: -1900% of the budget remains. Prioritise reliability work over new releases until it recovers.'
               runbook_url: https://github.com/ozy31/slo-as-code/blob/main/docs/runbooks/burn-rate.md
 
   # 0.4% errors: a 4x burn. Too slow to wake anyone, fast enough for a ticket.

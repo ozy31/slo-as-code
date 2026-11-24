@@ -88,6 +88,30 @@ func alertingGroup(f *spec.File, s spec.SLO, labels map[string]string) (Group, b
 			Annotations: ann,
 		})
 	}
+	if sev := s.Alerting.Exhausted; sev.Labels != nil {
+		alertLabels := maps.Clone(labels)
+		maps.Copy(alertLabels, s.Alerting.Labels)
+		maps.Copy(alertLabels, sev.Labels)
+		alertLabels["slo_alert"] = "exhausted"
+		ann := map[string]string{
+			"summary": fmt.Sprintf("%s %s SLO has spent its whole error budget", f.Service, s.Name),
+			"description": fmt.Sprintf(
+				"Objective %.4g%% over %s is missed: {{ $value | humanizePercentage }} of the budget remains. "+
+					"Prioritise reliability work over new releases until it recovers.",
+				s.Objective, FormatDuration(s.Window.Duration)),
+		}
+		if s.Alerting.Runbook != "" {
+			ann["runbook_url"] = s.Alerting.Runbook
+		}
+		g.Rules = append(g.Rules, Rule{
+			Alert: camel(f.Service) + camel(s.Name) + "ErrorBudgetExhausted",
+			Expr:  fmt.Sprintf("slo:error_budget_remaining:ratio%s < 0", selector(labels)),
+			// Long enough that a budget hovering around zero does not flap.
+			For:         "15m",
+			Labels:      alertLabels,
+			Annotations: ann,
+		})
+	}
 	return g, len(g.Rules) > 0
 }
 
