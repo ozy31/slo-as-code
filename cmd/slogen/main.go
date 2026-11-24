@@ -28,7 +28,7 @@ import (
 
 const usage = `usage:
   slogen validate <spec.yaml>...
-  slogen generate [-o dir] [-format rules|prometheusrule] [-check] <spec.yaml>...
+  slogen generate [-o dir] [-format rules|prometheusrule] [-namespace ns] [-check] <spec.yaml>...
   slogen dashboard [-o dir] <spec.yaml>...
   slogen explain <spec.yaml>...
   slogen version
@@ -70,6 +70,7 @@ func run(args []string) error {
 		fs := flag.NewFlagSet("generate", flag.ContinueOnError)
 		outDir := fs.String("o", "out/rules", "output directory")
 		format := fs.String("format", "rules", "rules (plain Prometheus/vmalert file) or prometheusrule (Prometheus Operator CR)")
+		namespace := fs.String("namespace", "", "metadata.namespace for -format prometheusrule (default: none, set by kubectl/kustomize)")
 		check := fs.Bool("check", false, "write nothing; fail if files in -o differ from what would be generated")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
@@ -77,10 +78,14 @@ func run(args []string) error {
 		if *format != "rules" && *format != "prometheusrule" {
 			return fmt.Errorf("unknown format %q", *format)
 		}
-		if *check {
-			return checkGenerated(*outDir, *format, fs.Args())
+		if *namespace != "" && *format != "prometheusrule" {
+			return errors.New("-namespace only applies to -format prometheusrule")
 		}
-		return generate(*outDir, *format, fs.Args())
+		opts := genOptions{outDir: *outDir, format: *format, namespace: *namespace}
+		if *check {
+			return checkGenerated(opts, fs.Args())
+		}
+		return generate(opts, fs.Args())
 	case "explain":
 		if len(args) < 2 {
 			return errors.New(usage)
@@ -185,7 +190,14 @@ type output struct {
 	data         []byte
 }
 
-func render(outDir, format string, paths []string) ([]output, error) {
+// genOptions controls where and in which shape rules are generated.
+type genOptions struct {
+	outDir    string
+	format    string // "rules" or "prometheusrule"
+	namespace string // PrometheusRule metadata.namespace, optional
+}
+
+func render(o genOptions, paths []string) ([]output, error) {
 	if len(paths) == 0 {
 		return nil, errors.New(usage)
 	}
@@ -196,10 +208,10 @@ func render(outDir, format string, paths []string) ([]output, error) {
 	outs := make([]output, 0, len(files))
 	for i, f := range files {
 		var doc any = rules.Compile(f)
-		dst := filepath.Join(outDir, f.Service+".rules.yaml")
-		if format == "prometheusrule" {
-			doc = prometheusRule(f, rules.Compile(f))
-			dst = filepath.Join(outDir, f.Service+".prometheusrule.yaml")
+		dst := filepath.Join(o.outDir, f.Service+".rules.yaml")
+		if o.format == "prometheusrule" {
+			doc = prometheusRule(f, rules.Compile(f), o.namespace)
+			dst = filepath.Join(o.outDir, f.Service+".prometheusrule.yaml")
 		}
 		data, err := marshal(doc, paths[i])
 		if err != nil {
@@ -210,40 +222,40 @@ func render(outDir, format string, paths []string) ([]output, error) {
 	return outs, nil
 }
 
-func generate(outDir, format string, paths []string) error {
-	outs, err := render(outDir, format, paths)
+func generate(o genOptions, paths []string) error {
+	outs, err := render(o, paths)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
+	if err := os.MkdirAll(o.outDir, 0o755); err != nil {
 		return err
 	}
-	for _, o := range outs {
-		if err := os.WriteFile(o.path, o.data, 0o644); err != nil {
+	for _, out := range outs {
+		if err := os.WriteFile(out.path, out.data, 0o644); err != nil {
 			return err
 		}
-		fmt.Printf("%s -> %s\n", o.source, o.path)
+		fmt.Printf("%s -> %s\n", out.source, out.path)
 	}
 	return nil
 }
 
 // checkGenerated is for repositories that commit the generated rules: CI
 // runs it so a spec change without regenerated output fails the build.
-func checkGenerated(outDir, format string, paths []string) error {
-	outs, err := render(outDir, format, paths)
+func checkGenerated(o genOptions, paths []string) error {
+	outs, err := render(o, paths)
 	if err != nil {
 		return err
 	}
 	var stale []string
-	for _, o := range outs {
-		current, err := os.ReadFile(o.path)
+	for _, out := range outs {
+		current, err := os.ReadFile(out.path)
 		switch {
 		case errors.Is(err, os.ErrNotExist):
-			stale = append(stale, o.path+" (missing)")
+			stale = append(stale, out.path+" (missing)")
 		case err != nil:
 			return err
-		case !bytes.Equal(current, o.data):
-			stale = append(stale, o.path)
+		case !bytes.Equal(current, out.data):
+			stale = append(stale, out.path)
 		}
 	}
 	if len(stale) > 0 {
@@ -255,18 +267,22 @@ func checkGenerated(outDir, format string, paths []string) error {
 
 // prometheusRule wraps the groups in a Prometheus Operator custom resource.
 // The labels let an operator's ruleSelector pick up generated rules only.
-func prometheusRule(f *spec.File, rf rules.RuleFile) map[string]any {
+func prometheusRule(f *spec.File, rf rules.RuleFile, namespace string) map[string]any {
+	meta := map[string]any{
+		"name": "slo-" + f.Service,
+		"labels": map[string]string{
+			"app.kubernetes.io/managed-by": "slogen",
+			"slo.service":                  f.Service,
+		},
+	}
+	if namespace != "" {
+		meta["namespace"] = namespace
+	}
 	return map[string]any{
 		"apiVersion": "monitoring.coreos.com/v1",
 		"kind":       "PrometheusRule",
-		"metadata": map[string]any{
-			"name": "slo-" + f.Service,
-			"labels": map[string]string{
-				"app.kubernetes.io/managed-by": "slogen",
-				"slo.service":                  f.Service,
-			},
-		},
-		"spec": rf,
+		"metadata":   meta,
+		"spec":       rf,
 	}
 }
 

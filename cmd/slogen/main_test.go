@@ -21,7 +21,7 @@ func TestDuplicateServiceIsRejected(t *testing.T) {
 
 	for name, fn := range map[string]func() error{
 		"validate":  func() error { return validate(paths) },
-		"generate":  func() error { return generate(filepath.Join(dir, "rules"), "rules", paths) },
+		"generate":  func() error { return generate(genOptions{outDir: filepath.Join(dir, "rules"), format: "rules"}, paths) },
 		"dashboard": func() error { return dashboards(filepath.Join(dir, "dash"), paths) },
 	} {
 		err := fn()
@@ -38,13 +38,13 @@ func TestCheckDetectsStaleAndMissingOutput(t *testing.T) {
 	dir := t.TempDir()
 	paths := []string{"../../examples/checkout.yaml", "../../examples/batch-ingest.yaml"}
 
-	if err := checkGenerated(dir, "rules", paths); err == nil || !strings.Contains(err.Error(), "(missing)") {
+	if err := checkGenerated(genOptions{outDir: dir, format: "rules"}, paths); err == nil || !strings.Contains(err.Error(), "(missing)") {
 		t.Fatalf("empty dir: want missing files, got %v", err)
 	}
-	if err := generate(dir, "rules", paths); err != nil {
+	if err := generate(genOptions{outDir: dir, format: "rules"}, paths); err != nil {
 		t.Fatal(err)
 	}
-	if err := checkGenerated(dir, "rules", paths); err != nil {
+	if err := checkGenerated(genOptions{outDir: dir, format: "rules"}, paths); err != nil {
 		t.Fatalf("freshly generated: %v", err)
 	}
 
@@ -57,7 +57,7 @@ func TestCheckDetectsStaleAndMissingOutput(t *testing.T) {
 	if err := os.WriteFile(target, []byte(edited), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err = checkGenerated(dir, "rules", paths)
+	err = checkGenerated(genOptions{outDir: dir, format: "rules"}, paths)
 	if err == nil || !strings.Contains(err.Error(), target) || strings.Contains(err.Error(), "batch-ingest") {
 		t.Fatalf("hand-edited file: want only %s reported, got %v", target, err)
 	}
@@ -74,5 +74,23 @@ func TestVersionPrefersLinkerValue(t *testing.T) {
 	version = ""
 	if got := buildVersion(); got == "" {
 		t.Error("empty version without ldflags")
+	}
+}
+
+func TestPrometheusRuleNamespace(t *testing.T) {
+	dir := t.TempDir()
+	paths := []string{"../../examples/checkout.yaml"}
+	if err := run([]string{"generate", "-o", dir, "-format", "prometheusrule", "-namespace", "monitoring", paths[0]}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "checkout.prometheusrule.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "namespace: monitoring") {
+		t.Errorf("namespace missing:\n%s", data[:300])
+	}
+	if err := run([]string{"generate", "-o", dir, "-namespace", "monitoring", paths[0]}); err == nil {
+		t.Error("-namespace with plain rules should be refused")
 	}
 }
