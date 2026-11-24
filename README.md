@@ -119,6 +119,7 @@ synthetic traffic of 1000 requests per minute:
 | Slow burn | 0.4% (4x) | ticket, no page |
 | Recovery | 2% for 30 min, then 0 | page while failing; resolved 30 min later although the 6h ratio is still above its threshold |
 | Slow responses | 5% over 300 ms (5x on the 99% latency SLO) | latency ticket, no page |
+| Budget exhausted | 2% for an hour | no alert at 10 min, `ErrorBudgetExhausted` after its 15 min hold |
 
 Go unit tests cover spec validation (every error is reported, unknown keys
 are rejected), the latency shorthand, the burn-rate table, window
@@ -137,6 +138,36 @@ intended change).
 - unknown keys, so `windw: 30d` fails instead of silently using the default
 - two files for the same service, because output files are named after the
   service and the second would silently overwrite the first
+- `service`, `slo` and `slo_alert` in any label set (slogen sets them, and
+  overriding them would break the generated selectors), label names that
+  Prometheus would reject, and annotations that replace the generated
+  `summary`, `description` or `runbook_url`
+
+## More alerting options
+
+```yaml
+    alerting:
+      runbook: https://example.com/runbooks/burn-rate
+      annotations:
+        dashboard_url: https://grafana.example.com/d/slo-checkout
+      page:
+        labels: { severity: critical }
+      ticket:
+        labels: { severity: warning }
+      exhausted:            # the SLO is already missed for this window
+        labels: { severity: warning }
+```
+
+`exhausted` adds `<Service><Slo>ErrorBudgetExhausted`, which fires when
+`slo:error_budget_remaining:ratio` stays below zero for 15 minutes. It is
+the signal for an error budget policy (freeze risky releases), not a page.
+
+For the Prometheus Operator, `-namespace` sets `metadata.namespace` on the
+generated `PrometheusRule`:
+
+```bash
+slogen generate -format prometheusrule -namespace monitoring -o out/k8s specs/*.yaml
+```
 
 ## Committing generated rules
 

@@ -17,6 +17,12 @@ the error budget for the compliance window will run out early.
 Both windows of a pair must be over the threshold, so the alert only fires
 while errors are still happening, and resolves within minutes of recovery.
 
+`ErrorBudgetExhausted` is different: the budget for the whole window is
+already spent, so the SLO is missed whatever happens next. It does not need
+an incident response. It means the team's error budget policy applies:
+hold risky releases and put reliability work first until the budget
+recovers as old errors leave the window.
+
 ## First five minutes
 
 1. Open the service's SLO dashboard (`SLOs / <service>` in Grafana). The
