@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -153,7 +154,34 @@ func (f *File) applyDefaults() {
 var (
 	nameRe   = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 	metricRe = regexp.MustCompile(`^[a-zA-Z_:][a-zA-Z0-9_:]*$`)
+	labelRe  = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 )
+
+// reservedLabels are set by slogen. Letting a spec override them would
+// break the selectors every generated rule uses, or alert routing.
+var reservedLabels = map[string]bool{"service": true, "slo": true, "slo_alert": true}
+
+func checkLabels(at string, labels map[string]string) []error {
+	var errs []error
+	for _, k := range sortedKeys(labels) {
+		switch {
+		case reservedLabels[k]:
+			errs = append(errs, fmt.Errorf("%s: label %q is set by slogen and cannot be overridden", at, k))
+		case !labelRe.MatchString(k) || strings.HasPrefix(k, "__"):
+			errs = append(errs, fmt.Errorf("%s: %q is not a valid Prometheus label name", at, k))
+		}
+	}
+	return errs
+}
+
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
 
 // Validate reports every problem in the file, not just the first.
 func (f *File) Validate() error {
@@ -164,6 +192,7 @@ func (f *File) Validate() error {
 	if len(f.SLOs) == 0 {
 		errs = append(errs, errors.New("at least one SLO is required"))
 	}
+	errs = append(errs, checkLabels("labels", f.Labels)...)
 	seen := map[string]bool{}
 	for i, s := range f.SLOs {
 		at := fmt.Sprintf("slos[%d] (%s)", i, s.Name)
@@ -180,6 +209,9 @@ func (f *File) Validate() error {
 		if s.Window.Duration < 24*time.Hour {
 			errs = append(errs, fmt.Errorf("%s: window must be at least 1d", at))
 		}
+		errs = append(errs, checkLabels(at+" alerting.labels", s.Alerting.Labels)...)
+		errs = append(errs, checkLabels(at+" alerting.page.labels", s.Alerting.Page.Labels)...)
+		errs = append(errs, checkLabels(at+" alerting.ticket.labels", s.Alerting.Ticket.Labels)...)
 		if l := s.SLI.Latency; l != nil {
 			if !l.expanded {
 				errs = append(errs, fmt.Errorf("%s: use either sli.latency or sli.errors/sli.total, not both", at))

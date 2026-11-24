@@ -104,3 +104,21 @@ func TestLatencyConflictsAndBadValues(t *testing.T) {
 		}
 	}
 }
+
+func TestReservedAndInvalidLabels(t *testing.T) {
+	_, err := Load("testdata/labels.yaml")
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	for _, want := range []string{
+		`labels: label "service" is set by slogen`,
+		`labels: "team-name" is not a valid Prometheus label name`,
+		`alerting.labels: label "slo" is set by slogen`,
+		`alerting.page.labels: label "slo_alert" is set by slogen`,
+		`alerting.ticket.labels: "__meta" is not a valid Prometheus label name`,
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error does not mention %q:\n%v", want, err)
+		}
+	}
+}
